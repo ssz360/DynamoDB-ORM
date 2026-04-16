@@ -1,14 +1,14 @@
-# DynamiteORM
+# orm-dynamodb
 
 Lightweight TypeScript decorators for modeling DynamoDB items as classes.
 
 ## Install
 
 ```bash
-npm install dynamite-orm
+npm install orm-dynamodb
 ```
 
-The package depends on `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`, which are installed automatically.
+The package depends on `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`.
 
 Your TypeScript config must enable decorators:
 
@@ -33,7 +33,7 @@ import {
   Link,
   SortKeyValue,
   ToDbModel
-} from 'dynamite-orm';
+} from 'orm-dynamodb';
 
 BaseEntity.configure(new DynamoDBClient({ region: process.env.AWS_REGION || 'us-east-1' }));
 
@@ -127,6 +127,7 @@ The package exports:
 
 Core capabilities:
 
+- explicit DynamoDB client configuration via `BaseEntity.configure(...)` or `@Entity(..., dbClient)`
 - `save()`, `update()`, and `delete()` instance methods
 - `get()`, `query()`, and common query helpers on the entity class
 - linked entity references with `@Link(...)` and `loadLinks()`

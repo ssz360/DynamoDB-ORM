@@ -2,7 +2,7 @@
  * Simple DynamoDB ORM
  * 
  * Features:
- * - static configure(client, config?): Configure DynamoDB client (optional - auto-configures with defaults if not called)
+ * - static configure(client, config?): Configure DynamoDB client
  * - save(): Insert or update an item
  * - update(attributes): Partially update specific attributes
  * - delete(): Remove the item
@@ -27,7 +27,7 @@
  * - between: Range query
  * 
  * Usage:
- * 1. (Optional) Configure DynamoDB client at app startup:
+ * 1. Configure DynamoDB client at app startup:
  *    BaseEntity.configure(new DynamoDBClient({ region: 'us-east-1' }))
  *    Or pass dbClient to @Entity decorator: @Entity('Table', 'HashKey', 'SortKey', dbClient)
  * 2. Extend your class from BaseEntity
@@ -63,6 +63,8 @@ const FROM_DB_MODEL_METADATA = Symbol('fromDbModel');
 interface LinkMetadata {
     propertyKey: string;
     entityClass: new (...args: any[]) => BaseEntity;
+    inline?: boolean;  // true = store IDs on parent item; false = write separate link records
+    isArray: boolean;  // declared at decoration time; true = property holds an array of linked entities
 }
 
 // Sort key condition types
@@ -94,6 +96,26 @@ function getDocClient(): DynamoDBDocumentClient {
     return docClient;
 }
 
+// Exhaustively pages through a DynamoDB query, returning all matching items.
+async function paginatedQuery(params: any): Promise<any[]> {
+    const items: any[] = [];
+    let lastKey: Record<string, any> | undefined = undefined;
+    do {
+        const result: { Items?: any[]; LastEvaluatedKey?: Record<string, any> } = await getDocClient().send(new QueryCommand({
+            ...params,
+            ...(lastKey ? { ExclusiveStartKey: lastKey } : {})
+        }));
+        if (result.Items) items.push(...result.Items);
+        lastKey = result.LastEvaluatedKey;
+    } while (lastKey);
+    return items;
+}
+
+// Escapes '#' in composite sort key segments to avoid prefix ambiguity.
+function encodeLinkSegment(v: string): string {
+    return v.replace(/#/g, '%23');
+}
+
 interface EntityMetadata {
     tableName?: string;
     hashKeyName: string;
@@ -104,8 +126,6 @@ interface EntityMetadata {
 
 // Base class with ORM methods
 export class BaseEntity {
-    createdAt: Date = new Date();
-    updatedAt: Date = new Date();
 
     protected getMetadata(): EntityMetadata {
         return (this.constructor as any).__entityMetadata__;
@@ -132,10 +152,6 @@ export class BaseEntity {
         const metadata = this.getMetadata();
         const key = this.getKey();
 
-        // Set timestamps first (before mapper, so mapper can transform them if needed)
-        item.createdAt = this.createdAt.toISOString();
-        item.updatedAt = new Date().toISOString();
-
         // Apply custom toDbModel mapper if defined
         const toDbModelMapper = (this.constructor as any)[TO_DB_MODEL_METADATA];
         if (toDbModelMapper) {
@@ -147,10 +163,24 @@ export class BaseEntity {
         const links: LinkMetadata[] = (this.constructor.prototype as any)[LINKS_METADATA] || [];
         for (const link of links) {
             const value = (this as any)[link.propertyKey];
-            if (value !== undefined && value !== null) {
-                // Check if it's an array
-                if (Array.isArray(value)) {
-                    item[`__${link.propertyKey}ID`] = value.map(linkedItem => {
+            const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+
+            if (isInline) {
+                if (value !== undefined && value !== null) {
+                    if (link.isArray) {
+                        item[`__${link.propertyKey}ID`] = (value as BaseEntity[]).map((linkedItem: BaseEntity) => {
+                            const linkedKey = linkedItem.getKey();
+                            const linkedMetadata = linkedItem.getMetadata();
+                            const result: any = {
+                                [linkedMetadata.hashKeyName]: linkedKey[linkedMetadata.hashKeyName]
+                            };
+                            if (linkedMetadata.sortKeyName) {
+                                result[linkedMetadata.sortKeyName] = linkedKey[linkedMetadata.sortKeyName];
+                            }
+                            return result;
+                        });
+                    } else {
+                        const linkedItem = value as BaseEntity;
                         const linkedKey = linkedItem.getKey();
                         const linkedMetadata = linkedItem.getMetadata();
                         const result: any = {
@@ -159,23 +189,14 @@ export class BaseEntity {
                         if (linkedMetadata.sortKeyName) {
                             result[linkedMetadata.sortKeyName] = linkedKey[linkedMetadata.sortKeyName];
                         }
-                        return result;
-                    });
-                } else {
-                    // Single item
-                    const linkedItem = value as BaseEntity;
-                    const linkedKey = linkedItem.getKey();
-                    const linkedMetadata = linkedItem.getMetadata();
-                    const result: any = {
-                        [linkedMetadata.hashKeyName]: linkedKey[linkedMetadata.hashKeyName]
-                    };
-                    if (linkedMetadata.sortKeyName) {
-                        result[linkedMetadata.sortKeyName] = linkedKey[linkedMetadata.sortKeyName];
+                        item[`__${link.propertyKey}ID`] = result;
                     }
-                    item[`__${link.propertyKey}ID`] = result;
                 }
+            } else {
+                // Non-inline: ensure no stale __propertyID from a previous loadLinks() is persisted
+                delete item[`__${link.propertyKey}ID`];
             }
-            // Remove the actual linked items from being saved
+            // Remove the actual linked entity instances from being saved
             delete item[link.propertyKey];
         }
 
@@ -210,6 +231,86 @@ export class BaseEntity {
             Item: item
         }));
 
+        // Write separate link records for non-inline links.
+        // Record shape: { [hashKey]: '__link', [sortKey]: '{parentHK}#{parentSK}#{property}#{linkedHK}#{linkedSK}',
+        //                 linkedHashKey, linkedSortKey, isArray }
+        // Requires the parent entity table to have a sort key.
+        const nonInlineLinks = links.filter(link => {
+            const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+            return !isInline;
+        });
+
+        // Issue 2: fail fast with a clear error rather than silently skipping.
+        if (nonInlineLinks.length > 0 && !metadata.sortKeyName) {
+            throw new Error(
+                `Entity "${metadata.tableName}" has non-inline @Link properties ` +
+                `(${nonInlineLinks.map(l => l.propertyKey).join(', ')}) but no sort key. ` +
+                `Non-inline links require a sort key. Use @Link(..., { inline: true }) or add a sort key.`
+            );
+        }
+
+        if (metadata.sortKeyName && nonInlineLinks.length > 0) {
+            const parentKey = this.getKey();
+            const parentHKVal = String(parentKey[metadata.hashKeyName]);
+            const parentSKVal = String(parentKey[metadata.sortKeyName]);
+
+            for (const link of nonInlineLinks) {
+                const value = (this as any)[link.propertyKey];
+
+                // Delete all existing link records for this property before writing new ones.
+                // Runs even when value is null/undefined so clearing a link removes stale records.
+                const skPrefix = `${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}#`;
+                const existingItems = await paginatedQuery({
+                    TableName: metadata.tableName,
+                    KeyConditionExpression: '#pk = :pkval AND begins_with(#sk, :skprefix)',
+                    ExpressionAttributeNames: {
+                        '#pk': metadata.hashKeyName,
+                        '#sk': metadata.sortKeyName!
+                    },
+                    ExpressionAttributeValues: {
+                        ':pkval': '__link',
+                        ':skprefix': skPrefix
+                    }
+                });
+                if (existingItems.length > 0) {
+                    await Promise.all(existingItems.map((rec: any) =>
+                        getDocClient().send(new DeleteCommand({
+                            TableName: metadata.tableName,
+                            Key: {
+                                [metadata.hashKeyName]: rec[metadata.hashKeyName],
+                                [metadata.sortKeyName!]: rec[metadata.sortKeyName!]
+                            }
+                        }))
+                    ));
+                }
+
+                if (value == null) continue;
+
+                const linkedItems: BaseEntity[] = link.isArray ? value : [value];
+                await Promise.all(linkedItems.map((linkedItem: BaseEntity) => {
+                    const linkedKey = linkedItem.getKey();
+                    const linkedMeta = linkedItem.getMetadata();
+                    const linkedHKVal = String(linkedKey[linkedMeta.hashKeyName]);
+                    const linkedSKVal = linkedMeta.sortKeyName
+                        ? String(linkedKey[linkedMeta.sortKeyName])
+                        : '';
+
+                    const linkRecord: any = {
+                        [metadata.hashKeyName]: '__link',
+                        [metadata.sortKeyName!]: `${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}#${encodeLinkSegment(linkedHKVal)}#${encodeLinkSegment(linkedSKVal)}`,
+                        linkedHashKey: linkedHKVal,
+                        linkedSortKey: linkedSKVal,
+                        isArray: link.isArray
+                    };
+
+                    return getDocClient().send(new PutCommand({
+                        TableName: metadata.tableName,
+                        Item: linkRecord
+                    }));
+                }));
+            }
+        }
+
         return this;
     }
 
@@ -242,7 +343,6 @@ export class BaseEntity {
         }));
 
         Object.assign(this, attributes);
-        this.updatedAt = new Date();
 
         return this;
     }
@@ -251,6 +351,37 @@ export class BaseEntity {
         const metadata = this.getMetadata();
         const key = this.getKey();
 
+        // Clean up non-inline link records before deleting the parent to prevent orphans.
+        if (metadata.sortKeyName) {
+            const links: LinkMetadata[] = (this.constructor.prototype as any)[LINKS_METADATA] || [];
+            const parentHKVal = String(key[metadata.hashKeyName]);
+            const parentSKVal = String(key[metadata.sortKeyName]);
+
+            for (const link of links) {
+                const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+                if (isInline) continue;
+
+                const existingItems = await paginatedQuery({
+                    TableName: metadata.tableName,
+                    KeyConditionExpression: '#pk = :pkval AND begins_with(#sk, :skprefix)',
+                    ExpressionAttributeNames: { '#pk': metadata.hashKeyName, '#sk': metadata.sortKeyName },
+                    ExpressionAttributeValues: {
+                        ':pkval': '__link',
+                        ':skprefix': `${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}#`
+                    }
+                });
+                await Promise.all(existingItems.map((rec: any) =>
+                    getDocClient().send(new DeleteCommand({
+                        TableName: metadata.tableName,
+                        Key: {
+                            [metadata.hashKeyName]: rec[metadata.hashKeyName],
+                            [metadata.sortKeyName!]: rec[metadata.sortKeyName!]
+                        }
+                    }))
+                ));
+            }
+        }
+
         await getDocClient().send(new DeleteCommand({
             TableName: metadata.tableName,
             Key: key
@@ -258,66 +389,92 @@ export class BaseEntity {
     }
 
     async loadLinks() {
+        const parentMetadata = this.getMetadata();
+        const parentKey = this.getKey();
         const links: LinkMetadata[] = (this.constructor.prototype as any)[LINKS_METADATA] || [];
 
         for (const link of links) {
-            const idField = `__${link.propertyKey}ID`;
-            const idValue = (this as any)[idField];
-
-            if (!idValue || !link.entityClass) {
-                continue;
-            }
+            if (!link.entityClass) continue;
 
             const EntityClass = link.entityClass;
             const entityMetadata = (EntityClass as any).__entityMetadata__;
+            const fromDbModelMapper = (EntityClass as any)[FROM_DB_MODEL_METADATA];
 
-            if (Array.isArray(idValue)) {
-                // Load multiple entities
-                const fromDbModelMapper = (EntityClass as any)[FROM_DB_MODEL_METADATA];
+            const instantiate = (raw: any): BaseEntity => {
+                let itemData = raw;
+                if (fromDbModelMapper) {
+                    itemData = { ...raw, ...(EntityClass as any)[fromDbModelMapper](raw) };
+                }
+                const instance = new EntityClass();
+                Object.assign(instance, itemData);
+                return instance;
+            };
 
-                const loadedEntities = await Promise.all(
-                    idValue.map(async (keyObj: any) => {
+            const idField = `__${link.propertyKey}ID`;
+            const idValue = (this as any)[idField];
+
+            if (idValue != null) {
+                // ── Inline path: IDs embedded on the parent item ──
+                if (Array.isArray(idValue)) {
+                    const loaded = await Promise.all(
+                        idValue.map(async (keyObj: any) => {
+                            const result = await getDocClient().send(new GetCommand({
+                                TableName: entityMetadata.tableName,
+                                Key: keyObj
+                            }));
+                            return result.Item ? instantiate(result.Item) : null;
+                        })
+                    );
+                    (this as any)[link.propertyKey] = loaded.filter(e => e !== null);
+                } else {
+                    const result = await getDocClient().send(new GetCommand({
+                        TableName: entityMetadata.tableName,
+                        Key: idValue
+                    }));
+                    if (result.Item) {
+                        (this as any)[link.propertyKey] = instantiate(result.Item);
+                    }
+                }
+            } else if (parentMetadata.sortKeyName) {
+                // ── Non-inline path: look up separate link records, then fetch each entity ──
+                const parentHKVal = String(parentKey[parentMetadata.hashKeyName]);
+                const parentSKVal = String(parentKey[parentMetadata.sortKeyName]);
+                const skPrefix = `${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}#`;
+
+                const linkItems = await paginatedQuery({
+                    TableName: parentMetadata.tableName,
+                    KeyConditionExpression: '#pk = :pkval AND begins_with(#sk, :skprefix)',
+                    ExpressionAttributeNames: {
+                        '#pk': parentMetadata.hashKeyName,
+                        '#sk': parentMetadata.sortKeyName
+                    },
+                    ExpressionAttributeValues: {
+                        ':pkval': '__link',
+                        ':skprefix': skPrefix
+                    }
+                });
+
+                if (linkItems.length === 0) continue;
+
+                const loaded = await Promise.all(
+                    linkItems.map(async (linkRecord: any) => {
+                        const linkedKey: any = {
+                            [entityMetadata.hashKeyName]: linkRecord.linkedHashKey
+                        };
+                        if (entityMetadata.sortKeyName) {
+                            linkedKey[entityMetadata.sortKeyName] = linkRecord.linkedSortKey;
+                        }
                         const result = await getDocClient().send(new GetCommand({
                             TableName: entityMetadata.tableName,
-                            Key: keyObj
+                            Key: linkedKey
                         }));
-
-                        if (result.Item) {
-                            let itemData = result.Item;
-                            if (fromDbModelMapper) {
-                                const mappedData = (EntityClass as any)[fromDbModelMapper](result.Item);
-                                itemData = { ...result.Item, ...mappedData };
-                            }
-
-                            const instance = new EntityClass();
-                            Object.assign(instance, itemData);
-                            return instance;
-                        }
-                        return null;
+                        return result.Item ? instantiate(result.Item) : null;
                     })
                 );
 
-                (this as any)[link.propertyKey] = loadedEntities.filter(e => e !== null);
-            } else {
-                // Load single entity
-                const fromDbModelMapper = (EntityClass as any)[FROM_DB_MODEL_METADATA];
-
-                const result = await getDocClient().send(new GetCommand({
-                    TableName: entityMetadata.tableName,
-                    Key: idValue
-                }));
-
-                if (result.Item) {
-                    let itemData = result.Item;
-                    if (fromDbModelMapper) {
-                        const mappedData = (EntityClass as any)[fromDbModelMapper](result.Item);
-                        itemData = { ...result.Item, ...mappedData };
-                    }
-
-                    const instance = new EntityClass();
-                    Object.assign(instance, itemData);
-                    (this as any)[link.propertyKey] = instance;
-                }
+                const filtered = loaded.filter(e => e !== null);
+                // Use stored link.isArray (from decoration time) to reconstruct the original shape
+                (this as any)[link.propertyKey] = link.isArray ? filtered : (filtered[0] ?? null);
             }
         }
 
@@ -501,17 +658,19 @@ export class BaseEntity {
 
 export function Entity(tableName: string, hashKeyName: string, sortKeyName?: string, dbClient?: DynamoDBClient) {
     return function <T extends new (...args: any[]) => BaseEntity>(constructor: T) {
-        // Configure DynamoDB client if not already configured
-        if (!docClient) {
-            if (dbClient) {
-                // Use provided client
-                BaseEntity.configure(dbClient);
-            } else {
-                // Use the default AWS credential/provider chain.
-                BaseEntity.configure(
-                    new DynamoDBClient({
-                        region: process.env.AWS_REGION || 'us-east-1'
-                    })
+        // Configure DynamoDB client from the decorator only when explicitly provided.
+        if (!docClient && dbClient) {
+            BaseEntity.configure(dbClient);
+        }
+
+        // Guard against using the reserved '__link' hash key value (used internally for link records).
+        const hkGetter = constructor.prototype[HASH_KEY_METADATA];
+        if (hkGetter) {
+            const tempInstance = new constructor() as any;
+            if (tempInstance[hkGetter] === '__link') {
+                throw new Error(
+                    `Entity "${constructor.name}" uses reserved hash key value "__link". ` +
+                    `This value is reserved for internal link records.`
                 );
             }
         }
@@ -540,15 +699,30 @@ export function SortKeyValue(target: object, propertyKey: string, descriptor?: P
     return descriptor;
 }
 
-export function Link(entityClass: new (...args: any[]) => BaseEntity) {
+export function LinkObject(entityClass: new (...args: any[]) => BaseEntity, options?: { inline?: boolean }) {
     return function (target: object, propertyKey: string) {
-        // Store link metadata on the prototype
         if (!(target as any)[LINKS_METADATA]) {
             (target as any)[LINKS_METADATA] = [];
         }
         (target as any)[LINKS_METADATA].push({
             propertyKey,
-            entityClass
+            entityClass,
+            inline: options?.inline,
+            isArray: false
+        });
+    };
+}
+
+export function LinkArray(entityClass: new (...args: any[]) => BaseEntity, options?: { inline?: boolean }) {
+    return function (target: object, propertyKey: string) {
+        if (!(target as any)[LINKS_METADATA]) {
+            (target as any)[LINKS_METADATA] = [];
+        }
+        (target as any)[LINKS_METADATA].push({
+            propertyKey,
+            entityClass,
+            inline: options?.inline,
+            isArray: true
         });
     };
 }

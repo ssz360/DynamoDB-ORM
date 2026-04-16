@@ -1,5 +1,6 @@
+import 'dotenv/config';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { BaseEntity, Entity, FromDbModel, HashKeyValue, Link, SortKeyValue, ToDbModel } from "./DynamiteORM";
+import { BaseEntity, Entity, FromDbModel, HashKeyValue, LinkArray, LinkObject, SortKeyValue, ToDbModel } from "./DynamiteORM";
 
 
 
@@ -19,6 +20,26 @@ class Wheel extends BaseEntity {
 }
 
 @Entity('test', 'hKey', 'sKey')
+class Engine extends BaseEntity {
+    @HashKeyValue
+    get hashKey() { return "Engine"; }
+    @SortKeyValue
+    get sortKey() { return this.engineID.toString(); }
+
+    engineID: number;
+    capacity: number;
+    numberOfCylinders: number;
+
+    constructor(engineID: number = 0, capacity: number = 0, numberOfCylinders = 0) {
+        super();
+        this.engineID = engineID;
+        this.capacity = capacity;
+        this.numberOfCylinders = numberOfCylinders;
+    }
+
+}
+
+@Entity('test', 'hKey', 'sKey')
 class Car extends BaseEntity {
     @HashKeyValue
     get hashKey() { return 'Car'; }
@@ -29,8 +50,12 @@ class Car extends BaseEntity {
     make: string;
     model: string;
     year: number;
-    @Link(Wheel)
+    @LinkArray(Wheel)
     wheels: Wheel[] | undefined;
+    @LinkObject(Engine)
+    engine: Engine | undefined;
+    createdAt: Date | undefined;
+    updatedAt: Date | undefined;
 
     constructor(carID: number = 0, make: string = '', model: string = '', year: number = 0) {
         super();
@@ -68,10 +93,10 @@ async function examples() {
     // Configure with custom region and credentials
     BaseEntity.configure(
         new DynamoDBClient({
-            region: 'us-east-1',
+            region: process.env.AWS_REGION,
             credentials: {
-                accessKeyId: '...',
-                secretAccessKey: '...'
+                accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+                secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
             }
         })
     );
@@ -117,6 +142,8 @@ async function examples() {
         new Wheel(4)
     ];
 
+    carWithWheels.engine = new Engine(1, 5000, 8);
+
     // Save car - wheels are automatically saved first (cascade save)
     await carWithWheels.save();
 
@@ -128,6 +155,17 @@ async function examples() {
     if (loadedCar) {
         await loadedCar.loadLinks();
         console.log(loadedCar.wheels); // Now populated with Wheel instances
+    }
+
+
+    loadedCar?.wheels?.splice(2, 1);
+    await loadedCar?.save();
+    const loadedCar2 = await Car.get("456");
+
+    // Load linked entities
+    if (loadedCar2) {
+        await loadedCar2.loadLinks();
+        console.log(loadedCar2.wheels); // Now populated with Wheel instances
     }
 
     // ===== QUERY EXAMPLES =====

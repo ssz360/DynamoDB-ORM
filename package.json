@@ -1,5 +1,5 @@
 {
-  "name": "dynamite-orm",
+  "name": "orm-dynamodb",
   "version": "1.0.0",
   "description": "Lightweight TypeScript decorators for modeling DynamoDB items as classes",
   "main": "./dist/index.js",
@@ -18,13 +18,13 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc -p tsconfig.build.json",
-    "dev": "tsx watch examples.ts",
+    "dev": "tsx examples.ts",
     "prepack": "npm run build",
     "pack:check": "npm pack --dry-run"
   },
   "keywords": [
     "dynamodb",
-    "dynamite-orm",
+    "orm-dynamodb",
     "decorators",
     "orm",
     "typescript"
@@ -32,7 +32,8 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",
-    "@aws-sdk/lib-dynamodb": "^3.0.0"
+    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
