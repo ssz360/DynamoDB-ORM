@@ -273,21 +273,32 @@ export class BaseEntity {
                     }
                 });
                 if (existingItems.length > 0) {
-                    await Promise.all(existingItems.map((rec: any) =>
-                        getDocClient().send(new DeleteCommand({
+                    const linkedEntityMetadata = (link.entityClass as any).__entityMetadata__;
+                    await Promise.all(existingItems.map(async (rec: any) => {
+                        await getDocClient().send(new DeleteCommand({
                             TableName: metadata.tableName,
                             Key: {
                                 [metadata.hashKeyName]: rec[metadata.hashKeyName],
                                 [metadata.sortKeyName!]: rec[metadata.sortKeyName!]
                             }
-                        }))
-                    ));
+                        }));
+                        // Delete corresponding back-reference from child's table
+                        if (linkedEntityMetadata.sortKeyName) {
+                            await getDocClient().send(new DeleteCommand({
+                                TableName: linkedEntityMetadata.tableName,
+                                Key: {
+                                    [linkedEntityMetadata.hashKeyName]: '__backlink',
+                                    [linkedEntityMetadata.sortKeyName]: `${encodeLinkSegment(rec.linkedHashKey)}#${encodeLinkSegment(rec.linkedSortKey)}#${encodeLinkSegment(metadata.tableName!)}#${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}`
+                                }
+                            }));
+                        }
+                    }));
                 }
 
                 if (value == null) continue;
 
                 const linkedItems: BaseEntity[] = link.isArray ? value : [value];
-                await Promise.all(linkedItems.map((linkedItem: BaseEntity) => {
+                await Promise.all(linkedItems.map(async (linkedItem: BaseEntity) => {
                     const linkedKey = linkedItem.getKey();
                     const linkedMeta = linkedItem.getMetadata();
                     const linkedHKVal = String(linkedKey[linkedMeta.hashKeyName]);
@@ -303,10 +314,27 @@ export class BaseEntity {
                         isArray: link.isArray
                     };
 
-                    return getDocClient().send(new PutCommand({
+                    await getDocClient().send(new PutCommand({
                         TableName: metadata.tableName,
                         Item: linkRecord
                     }));
+
+                    // Write back-reference in child's table so child deletions can clean up this forward link.
+                    if (linkedMeta.sortKeyName) {
+                        await getDocClient().send(new PutCommand({
+                            TableName: linkedMeta.tableName,
+                            Item: {
+                                [linkedMeta.hashKeyName]: '__backlink',
+                                [linkedMeta.sortKeyName]: `${encodeLinkSegment(linkedHKVal)}#${encodeLinkSegment(linkedSKVal)}#${encodeLinkSegment(metadata.tableName!)}#${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}`,
+                                parentTableName: metadata.tableName,
+                                parentHashKeyName: metadata.hashKeyName,
+                                parentSortKeyName: metadata.sortKeyName,
+                                parentHashKey: parentHKVal,
+                                parentSortKey: parentSKVal,
+                                propertyKey: link.propertyKey
+                            }
+                        }));
+                    }
                 }));
             }
         }
@@ -370,16 +398,64 @@ export class BaseEntity {
                         ':skprefix': `${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}#`
                     }
                 });
-                await Promise.all(existingItems.map((rec: any) =>
-                    getDocClient().send(new DeleteCommand({
+                const linkedEntityMetadata = (link.entityClass as any).__entityMetadata__;
+                await Promise.all(existingItems.map(async (rec: any) => {
+                    await getDocClient().send(new DeleteCommand({
                         TableName: metadata.tableName,
                         Key: {
                             [metadata.hashKeyName]: rec[metadata.hashKeyName],
                             [metadata.sortKeyName!]: rec[metadata.sortKeyName!]
                         }
-                    }))
-                ));
+                    }));
+                    // Delete corresponding back-reference from child's table
+                    if (linkedEntityMetadata.sortKeyName) {
+                        await getDocClient().send(new DeleteCommand({
+                            TableName: linkedEntityMetadata.tableName,
+                            Key: {
+                                [linkedEntityMetadata.hashKeyName]: '__backlink',
+                                [linkedEntityMetadata.sortKeyName]: `${encodeLinkSegment(rec.linkedHashKey)}#${encodeLinkSegment(rec.linkedSortKey)}#${encodeLinkSegment(metadata.tableName!)}#${encodeLinkSegment(parentHKVal)}#${encodeLinkSegment(parentSKVal)}#${encodeLinkSegment(link.propertyKey)}`
+                            }
+                        }));
+                    }
+                }));
             }
+        }
+
+        // Clean up forward link records pointing TO this item (child-side cleanup via back-references).
+        if (metadata.sortKeyName) {
+            const itemHKVal = String(key[metadata.hashKeyName]);
+            const itemSKVal = String(key[metadata.sortKeyName]);
+            const backlinkPrefix = `${encodeLinkSegment(itemHKVal)}#${encodeLinkSegment(itemSKVal)}#`;
+
+            const backlinks = await paginatedQuery({
+                TableName: metadata.tableName,
+                KeyConditionExpression: '#pk = :pkval AND begins_with(#sk, :skprefix)',
+                ExpressionAttributeNames: { '#pk': metadata.hashKeyName, '#sk': metadata.sortKeyName },
+                ExpressionAttributeValues: {
+                    ':pkval': '__backlink',
+                    ':skprefix': backlinkPrefix
+                }
+            });
+
+            await Promise.all(backlinks.map(async (backlink: any) => {
+                // Delete the forward link record in the parent's table
+                const fwdSKVal = `${encodeLinkSegment(backlink.parentHashKey)}#${encodeLinkSegment(backlink.parentSortKey)}#${encodeLinkSegment(backlink.propertyKey)}#${encodeLinkSegment(itemHKVal)}#${encodeLinkSegment(itemSKVal)}`;
+                await getDocClient().send(new DeleteCommand({
+                    TableName: backlink.parentTableName,
+                    Key: {
+                        [backlink.parentHashKeyName]: '__link',
+                        [backlink.parentSortKeyName]: fwdSKVal
+                    }
+                }));
+                // Delete the back-reference record itself
+                await getDocClient().send(new DeleteCommand({
+                    TableName: metadata.tableName,
+                    Key: {
+                        [metadata.hashKeyName]: backlink[metadata.hashKeyName],
+                        [metadata.sortKeyName!]: backlink[metadata.sortKeyName!]
+                    }
+                }));
+            }));
         }
 
         await getDocClient().send(new DeleteCommand({
@@ -673,10 +749,10 @@ export function Entity(tableName: string, hashKeyName: string, sortKeyName?: str
         const hkGetter = constructor.prototype[HASH_KEY_METADATA];
         if (hkGetter) {
             const tempInstance = new constructor() as any;
-            if (tempInstance[hkGetter] === '__link') {
+            if (tempInstance[hkGetter] === '__link' || tempInstance[hkGetter] === '__backlink') {
                 throw new Error(
-                    `Entity "${constructor.name}" uses reserved hash key value "__link". ` +
-                    `This value is reserved for internal link records.`
+                    `Entity "${constructor.name}" uses reserved hash key value "${tempInstance[hkGetter]}". ` +
+                    `This value is reserved for internal ORM records.`
                 );
             }
         }

@@ -312,6 +312,7 @@ describe('DynamiteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', () =>
         await cleanupTestData('PARENT_NONINLINE');
         await cleanupTestData('CHILD');
         await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
     });
 
     it('should save and load non-inline linked object', async () => {
@@ -372,6 +373,7 @@ describe('DynamiteORM - Link Arrays', () => {
         await cleanupTestData('PARENT_ARRAY');
         await cleanupTestData('CHILD');
         await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
     });
 
     it('should save and load array of linked items', async () => {
@@ -462,6 +464,7 @@ describe('DynamiteORM - Issue 5: Delete Cascade', () => {
         await cleanupTestData('PARENT_ARRAY');
         await cleanupTestData('CHILD');
         await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
     });
 
     it('should cleanup link records when deleting parent', async () => {
@@ -494,6 +497,7 @@ describe('DynamiteORM - Issue 6: Hash Encoding in Sort Keys', () => {
         await cleanupTestData('PARENT#WITH#HASH');
         await cleanupTestData('HASH#ENCODING');
         await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
     });
 
     it('should handle # characters in hash and sort keys', async () => {
@@ -537,6 +541,18 @@ describe('DynamiteORM - Issue 7: Reserved Hash Key Value', () => {
             class InvalidEntity extends BaseEntity {
                 @HashKeyValue
                 get hashKey() { return '__link'; }
+                @SortKeyValue
+                get sortKey() { return '1'; }
+            }
+        }).toThrow(/reserved hash key value/i);
+    });
+
+    it('should throw error when hash key value is __backlink', () => {
+        expect(() => {
+            @Entity(tableName, 'hKey', 'sKey')
+            class InvalidBacklinkEntity extends BaseEntity {
+                @HashKeyValue
+                get hashKey() { return '__backlink'; }
                 @SortKeyValue
                 get sortKey() { return '1'; }
             }
@@ -629,11 +645,116 @@ describe('DynamiteORM - Error Handling', () => {
     });
 });
 
+describe('DynamiteORM - Child Deletion Cleanup via Back-References', () => {
+    afterEach(async () => {
+        await cleanupTestData('PARENT_NONINLINE');
+        await cleanupTestData('PARENT_ARRAY');
+        await cleanupTestData('CHILD');
+        await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
+    });
+
+    it('should clean up stale forward link when child is deleted (non-inline LinkObject)', async () => {
+        const child = new TestChild(600, 'Deletable Child');
+        await child.save();
+
+        const parent = new TestParentWithNonInlineLink(20);
+        parent.child = child;
+        await parent.save();
+
+        // Delete the child — should remove the forward link in the parent's table
+        await child.delete();
+
+        // The child itself should be gone
+        const deletedChild = await TestChild.get('600');
+        expect(deletedChild).toBeNull();
+
+        // loadLinks should gracefully return undefined (no stale record, no crash)
+        const retrievedParent = await TestParentWithNonInlineLink.get('20');
+        expect(retrievedParent).toBeDefined();
+        await retrievedParent!.loadLinks();
+        expect(retrievedParent!.child).toBeUndefined();
+    });
+
+    it('should clean up forward links from all parents when shared child is deleted (LinkArray)', async () => {
+        const child = new TestChild(601, 'Shared Child');
+        await child.save();
+
+        const parent1 = new TestParentWithArray(21);
+        parent1.children = [child];
+        await parent1.save();
+
+        const parent2 = new TestParentWithArray(22);
+        parent2.children = [child];
+        await parent2.save();
+
+        // Delete the shared child
+        await child.delete();
+
+        // Both parents should have no children after loadLinks
+        const retrievedParent1 = await TestParentWithArray.get('21');
+        await retrievedParent1!.loadLinks();
+        expect(retrievedParent1!.children).toHaveLength(0);
+
+        const retrievedParent2 = await TestParentWithArray.get('22');
+        await retrievedParent2!.loadLinks();
+        expect(retrievedParent2!.children).toHaveLength(0);
+    });
+
+    it('should not leave orphan back-reference records after child is deleted', async () => {
+        const child = new TestChild(602, 'Back-Ref Check');
+        await child.save();
+
+        const parent = new TestParentWithNonInlineLink(23);
+        parent.child = child;
+        await parent.save();
+
+        await child.delete();
+
+        // Re-save child under the same ID — if a stale back-reference existed,
+        // loading links on the parent would still find data. With cleanup, it must be empty.
+        const newChild = new TestChild(602, 'Re-Created Child');
+        await newChild.save();
+
+        const retrievedParent = await TestParentWithNonInlineLink.get('23');
+        await retrievedParent!.loadLinks();
+        // Forward link was deleted when original child was deleted, so this should still be undefined
+        expect(retrievedParent!.child).toBeUndefined();
+
+        // Cleanup
+        await newChild.delete();
+    });
+
+    it('should not affect back-references when link is replaced and old child is later deleted', async () => {
+        const child1 = new TestChild(603, 'First Child');
+        const child2 = new TestChild(604, 'Second Child');
+        await child1.save();
+        await child2.save();
+
+        const parent = new TestParentWithNonInlineLink(24);
+        parent.child = child1;
+        await parent.save();
+
+        // Replace link with child2 (removes forward link + back-ref to child1, writes new ones for child2)
+        parent.child = child2;
+        await parent.save();
+
+        // Delete child1 — should be a no-op re. back-references (none should exist for child1 anymore)
+        await child1.delete();
+
+        // Parent should still resolve to child2
+        const retrievedParent = await TestParentWithNonInlineLink.get('24');
+        await retrievedParent!.loadLinks();
+        expect(retrievedParent!.child?.childId).toBe(604);
+    });
+});
+
 describe('DynamiteORM - Issue 4: Stale __propertyID Cleanup', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_NONINLINE');
         await cleanupTestData('CHILD');
         await cleanupTestData('__link');
+        await cleanupTestData('__backlink');
     });
 
     it('should not persist __propertyID field for non-inline links after loadLinks', async () => {
