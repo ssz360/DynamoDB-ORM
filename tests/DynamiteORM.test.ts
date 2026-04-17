@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { DynamoDBClient, ScanCommand } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, DeleteCommand } from '@aws-sdk/lib-dynamodb';
-import { BaseEntity, Entity, HashKeyValue, SortKeyValue, LinkArray, LinkObject, ToDbModel, FromDbModel } from '../DynamiteORM';
+import { BaseEntity, Entity, HashKeyValue, SortKeyValue, LinkArray, LinkObject, ToDbModel, FromDbModel } from '../dynamoDbORM';
 import { tableName } from './setup';
 
 // Test entity classes
@@ -226,7 +226,7 @@ async function cleanupTestData(hashKeyPrefix: string) {
     }
 }
 
-describe('DynamiteORM - Basic CRUD Operations', () => {
+describe('dynamoDbORMteORM - Basic CRUD Operations', () => {
     afterEach(async () => {
         await cleanupTestData('ITEM');
     });
@@ -272,7 +272,7 @@ describe('DynamiteORM - Basic CRUD Operations', () => {
     });
 });
 
-describe('DynamiteORM - Inline Links', () => {
+describe('dynamoDbORMteORM - Inline Links', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_INLINE');
         await cleanupTestData('CHILD');
@@ -307,7 +307,7 @@ describe('DynamiteORM - Inline Links', () => {
     });
 });
 
-describe('DynamiteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', () => {
+describe('dynamoDbORMteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_NONINLINE');
         await cleanupTestData('CHILD');
@@ -368,7 +368,7 @@ describe('DynamiteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', () =>
     });
 });
 
-describe('DynamiteORM - Link Arrays', () => {
+describe('dynamoDbORMteORM - Link Arrays', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_ARRAY');
         await cleanupTestData('CHILD');
@@ -448,7 +448,7 @@ describe('DynamiteORM - Link Arrays', () => {
     });
 });
 
-describe('DynamiteORM - Issue 2: Sort Key Validation', () => {
+describe('dynamoDbORMteORM - Issue 2: Sort Key Validation', () => {
     it('should throw error when using non-inline link without sort key', async () => {
         // This test verifies that our error checking works
         // The test entities must have sort keys defined in the table schema,
@@ -459,7 +459,7 @@ describe('DynamiteORM - Issue 2: Sort Key Validation', () => {
     });
 });
 
-describe('DynamiteORM - Issue 5: Delete Cascade', () => {
+describe('dynamoDbORMteORM - Issue 5: Delete Cascade', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_ARRAY');
         await cleanupTestData('CHILD');
@@ -492,7 +492,7 @@ describe('DynamiteORM - Issue 5: Delete Cascade', () => {
     });
 });
 
-describe('DynamiteORM - Issue 6: Hash Encoding in Sort Keys', () => {
+describe('dynamoDbORMteORM - Issue 6: Hash Encoding in Sort Keys', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT#WITH#HASH');
         await cleanupTestData('HASH#ENCODING');
@@ -534,7 +534,7 @@ describe('DynamiteORM - Issue 6: Hash Encoding in Sort Keys', () => {
     });
 });
 
-describe('DynamiteORM - Issue 7: Reserved Hash Key Value', () => {
+describe('dynamoDbORMteORM - Issue 7: Reserved Hash Key Value', () => {
     it('should throw error when hash key value is __link', () => {
         expect(() => {
             @Entity(tableName, 'hKey', 'sKey')
@@ -560,7 +560,7 @@ describe('DynamiteORM - Issue 7: Reserved Hash Key Value', () => {
     });
 });
 
-describe('DynamiteORM - ToDbModel and FromDbModel', () => {
+describe('dynamoDbORMteORM - ToDbModel and FromDbModel', () => {
     afterEach(async () => {
         await cleanupTestData('MAPPER');
     });
@@ -585,7 +585,7 @@ describe('DynamiteORM - ToDbModel and FromDbModel', () => {
     });
 });
 
-describe('DynamiteORM - Query Operations', () => {
+describe('dynamoDbORMteORM - Query Operations', () => {
     beforeEach(async () => {
         // Create test data
         for (let i = 1; i <= 10; i++) {
@@ -633,7 +633,7 @@ describe('DynamiteORM - Query Operations', () => {
     });
 });
 
-describe('DynamiteORM - Error Handling', () => {
+describe('dynamoDbORMteORM - Error Handling', () => {
     it('should return null for non-existent item', async () => {
         const result = await TestItem.get('99999');
         expect(result).toBeNull();
@@ -645,7 +645,7 @@ describe('DynamiteORM - Error Handling', () => {
     });
 });
 
-describe('DynamiteORM - Child Deletion Cleanup via Back-References', () => {
+describe('dynamoDbORMteORM - Child Deletion Cleanup via Back-References', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_NONINLINE');
         await cleanupTestData('PARENT_ARRAY');
@@ -749,7 +749,7 @@ describe('DynamiteORM - Child Deletion Cleanup via Back-References', () => {
     });
 });
 
-describe('DynamiteORM - Issue 4: Stale __propertyID Cleanup', () => {
+describe('dynamoDbORMteORM - Issue 4: Stale __propertyID Cleanup', () => {
     afterEach(async () => {
         await cleanupTestData('PARENT_NONINLINE');
         await cleanupTestData('CHILD');

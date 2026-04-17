@@ -1,8 +1,8 @@
 import 'dotenv/config';
 import { DynamoDBClient, CreateTableCommand, DeleteTableCommand, DescribeTableCommand } from '@aws-sdk/client-dynamodb';
-import { BaseEntity } from '../DynamiteORM';
+import { BaseEntity } from '../dynamoDbORM';
 
-const tableName = process.env.TEST_TABLE_NAME || 'test-dynamite-orm';
+const tableName = process.env.TEST_TABLE_NAME || 'test-dynamoDbORMte-orm';
 
 // Configure DynamoDB client for tests
 const client = new DynamoDBClient({

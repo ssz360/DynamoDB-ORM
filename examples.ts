@@ -1,6 +1,6 @@
 import 'dotenv/config';
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { BaseEntity, Entity, FromDbModel, HashKeyValue, LinkArray, LinkObject, SortKeyValue, ToDbModel } from "./DynamiteORM";
+import { BaseEntity, Entity, FromDbModel, HashKeyValue, LinkArray, LinkObject, SortKeyValue, ToDbModel } from "./dynamoDbORM";
 
 
 

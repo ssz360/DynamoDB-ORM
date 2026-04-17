@@ -1,1 +1,1 @@
-export * from './DynamiteORM';
+export * from './dynamoDbORM';

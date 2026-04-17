@@ -1,8 +1,8 @@
-# DynamiteORM Test Suite
+# dynamoDbORMteORM Test Suite
 
 ## Overview
 
-Comprehensive test suite for DynamiteORM using Vitest and real DynamoDB connection (no mocks).
+Comprehensive test suite for dynamoDbORMteORM using Vitest and real DynamoDB connection (no mocks).
 
 ## Setup
 
@@ -15,7 +15,7 @@ Comprehensive test suite for DynamiteORM using Vitest and real DynamoDB connecti
    
    Update `.env` file with your test DynamoDB credentials:
    ```env
-   TEST_TABLE_NAME=test-dynamite-orm
+   TEST_TABLE_NAME=test-dynamoDbORMte-orm
    TEST_AWS_REGION=us-east-1
    TEST_AWS_ACCESS_KEY_ID=your_access_key
    TEST_AWS_SECRET_ACCESS_KEY=your_secret_key
@@ -25,7 +25,7 @@ Comprehensive test suite for DynamiteORM using Vitest and real DynamoDB connecti
    
    The test suite automatically creates the test table if it doesn't exist.
    Table schema:
-   - Table Name: `test-dynamite-orm` (configurable via env)
+   - Table Name: `test-dynamoDbORMte-orm` (configurable via env)
    - Hash Key: `hKey` (String)
    - Sort Key: `sKey` (String)
    - Billing Mode: PAY_PER_REQUEST
