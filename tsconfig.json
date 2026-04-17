@@ -10,9 +10,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node", "vitest/globals"]
   },
   "include": [
-    "*.ts"
+    "*.ts",
+    "tests/**/*.ts"
   ]
 }

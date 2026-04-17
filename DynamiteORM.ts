@@ -63,7 +63,7 @@ const FROM_DB_MODEL_METADATA = Symbol('fromDbModel');
 interface LinkMetadata {
     propertyKey: string;
     entityClass: new (...args: any[]) => BaseEntity;
-    inline?: boolean;  // true = store IDs on parent item; false = write separate link records
+    inline?: boolean;  // true = store IDs on parent item; false/undefined = write separate link records (default: false)
     isArray: boolean;  // declared at decoration time; true = property holds an array of linked entities
 }
 
@@ -163,7 +163,7 @@ export class BaseEntity {
         const links: LinkMetadata[] = (this.constructor.prototype as any)[LINKS_METADATA] || [];
         for (const link of links) {
             const value = (this as any)[link.propertyKey];
-            const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+            const isInline = link.inline ?? false;
 
             if (isInline) {
                 if (value !== undefined && value !== null) {
@@ -236,7 +236,7 @@ export class BaseEntity {
         //                 linkedHashKey, linkedSortKey, isArray }
         // Requires the parent entity table to have a sort key.
         const nonInlineLinks = links.filter(link => {
-            const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+            const isInline = link.inline ?? false;
             return !isInline;
         });
 
@@ -358,7 +358,7 @@ export class BaseEntity {
             const parentSKVal = String(key[metadata.sortKeyName]);
 
             for (const link of links) {
-                const isInline = link.inline !== undefined ? link.inline : !link.isArray;
+                const isInline = link.inline ?? false;
                 if (isInline) continue;
 
                 const existingItems = await paginatedQuery({
@@ -454,7 +454,13 @@ export class BaseEntity {
                     }
                 });
 
-                if (linkItems.length === 0) continue;
+                if (linkItems.length === 0) {
+                    // For array links with no records, set to empty array instead of leaving undefined
+                    if (link.isArray) {
+                        (this as any)[link.propertyKey] = [];
+                    }
+                    continue;
+                }
 
                 const loaded = await Promise.all(
                     linkItems.map(async (linkRecord: any) => {
