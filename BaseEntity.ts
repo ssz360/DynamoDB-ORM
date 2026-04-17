@@ -91,7 +91,7 @@ export class BaseEntity {
         };
     }
 
-    async save() {
+    async insert() {
         const metadata = this.getMetadata();
 
         // Save linked entities first (cascade save)
@@ -101,10 +101,10 @@ export class BaseEntity {
             if (value !== undefined && value !== null) {
                 if (Array.isArray(value)) {
                     // Save all linked entities in parallel
-                    await Promise.all(value.map((linkedItem: BaseEntity) => linkedItem.save()));
+                    await Promise.all(value.map((linkedItem: BaseEntity) => linkedItem.insert()));
                 } else {
                     // Save single linked entity
-                    await (value as BaseEntity).save();
+                    await (value as BaseEntity).insert();
                 }
             }
         }

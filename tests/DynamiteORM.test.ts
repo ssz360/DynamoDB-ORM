@@ -233,7 +233,7 @@ describe('dynamoDbORMteORM - Basic CRUD Operations', () => {
 
     it('should create and save an item', async () => {
         const item = new TestItem(1, 'Test Item');
-        await item.save();
+        await item.insert();
 
         const retrieved = await TestItem.get('1');
         expect(retrieved).toBeDefined();
@@ -243,7 +243,7 @@ describe('dynamoDbORMteORM - Basic CRUD Operations', () => {
 
     it('should update an item', async () => {
         const item = new TestItem(2, 'Original');
-        await item.save();
+        await item.insert();
 
         await item.update({ name: 'Updated' });
 
@@ -253,7 +253,7 @@ describe('dynamoDbORMteORM - Basic CRUD Operations', () => {
 
     it('should delete an item', async () => {
         const item = new TestItem(3, 'To Delete');
-        await item.save();
+        await item.insert();
 
         await item.delete();
 
@@ -262,9 +262,9 @@ describe('dynamoDbORMteORM - Basic CRUD Operations', () => {
     });
 
     it('should query items', async () => {
-        await new TestItem(10, 'Item 10').save();
-        await new TestItem(20, 'Item 20').save();
-        await new TestItem(30, 'Item 30').save();
+        await new TestItem(10, 'Item 10').insert();
+        await new TestItem(20, 'Item 20').insert();
+        await new TestItem(30, 'Item 30').insert();
 
         const results = await TestItem.queryBetween('10', '25');
         expect(results.length).toBe(2);
@@ -280,11 +280,11 @@ describe('dynamoDbORMteORM - Inline Links', () => {
 
     it('should save and load inline linked object', async () => {
         const child = new TestChild(100, 'Child Data');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithInlineLink(1);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithInlineLink.get('1');
         expect(retrieved).toBeDefined();
@@ -299,7 +299,7 @@ describe('dynamoDbORMteORM - Inline Links', () => {
     it('should handle null inline link', async () => {
         const parent = new TestParentWithInlineLink(2);
         parent.child = undefined;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithInlineLink.get('2');
         await retrieved?.loadLinks();
@@ -317,11 +317,11 @@ describe('dynamoDbORMteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', 
 
     it('should save and load non-inline linked object', async () => {
         const child = new TestChild(200, 'Non-Inline Child');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithNonInlineLink(1);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithNonInlineLink.get('1');
         await retrieved?.loadLinks();
@@ -331,15 +331,15 @@ describe('dynamoDbORMteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', 
 
     it('should cleanup stale link records when setting to null (Issue 1)', async () => {
         const child = new TestChild(201, 'To Be Removed');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithNonInlineLink(2);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         // Set to null and save again
         parent.child = null as any;
-        await parent.save();
+        await parent.insert();
 
         // Verify link record is cleaned up
         const retrieved = await TestParentWithNonInlineLink.get('2');
@@ -350,16 +350,16 @@ describe('dynamoDbORMteORM - Non-Inline Links (Issue 1: Stale Record Cleanup)', 
     it('should replace link when changing to different child', async () => {
         const child1 = new TestChild(202, 'First Child');
         const child2 = new TestChild(203, 'Second Child');
-        await child1.save();
-        await child2.save();
+        await child1.insert();
+        await child2.insert();
 
         const parent = new TestParentWithNonInlineLink(3);
         parent.child = child1;
-        await parent.save();
+        await parent.insert();
 
         // Change to different child
         parent.child = child2;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithNonInlineLink.get('3');
         await retrieved?.loadLinks();
@@ -383,12 +383,12 @@ describe('dynamoDbORMteORM - Link Arrays', () => {
             new TestChild(302, 'Child 3')
         ];
         for (const child of children) {
-            await child.save();
+            await child.insert();
         }
 
         const parent = new TestParentWithArray(1);
         parent.children = children;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithArray.get('1');
         await retrieved?.loadLinks();
@@ -404,18 +404,18 @@ describe('dynamoDbORMteORM - Link Arrays', () => {
             new TestChild(313, 'Child D')
         ];
         for (const child of children) {
-            await child.save();
+            await child.insert();
         }
 
         const parent = new TestParentWithArray(2);
         parent.children = children;
-        await parent.save();
+        await parent.insert();
 
         // Splice - remove middle elements
         const retrieved1 = await TestParentWithArray.get('2');
         await retrieved1?.loadLinks();
         retrieved1?.children?.splice(1, 2); // Remove Child B and C
-        await retrieved1?.save();
+        await retrieved1?.insert();
 
         // Verify only 2 children remain
         const retrieved2 = await TestParentWithArray.get('2');
@@ -430,16 +430,16 @@ describe('dynamoDbORMteORM - Link Arrays', () => {
             new TestChild(321, 'Temp 2')
         ];
         for (const child of children) {
-            await child.save();
+            await child.insert();
         }
 
         const parent = new TestParentWithArray(3);
         parent.children = children;
-        await parent.save();
+        await parent.insert();
 
         // Clear array
         parent.children = [];
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithArray.get('3');
         await retrieved?.loadLinks();
@@ -473,12 +473,12 @@ describe('dynamoDbORMteORM - Issue 5: Delete Cascade', () => {
             new TestChild(401, 'Child Y')
         ];
         for (const child of children) {
-            await child.save();
+            await child.insert();
         }
 
         const parent = new TestParentWithArray(10);
         parent.children = children;
-        await parent.save();
+        await parent.insert();
 
         // Delete parent
         await parent.delete();
@@ -502,11 +502,11 @@ describe('dynamoDbORMteORM - Issue 6: Hash Encoding in Sort Keys', () => {
 
     it('should handle # characters in hash and sort keys', async () => {
         const linkedItem = new TestItemWithHashEncoding(1);
-        await linkedItem.save();
+        await linkedItem.insert();
 
         const parent = new TestParentWithHashInKeys(1);
         parent.linkedItem = linkedItem;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithHashInKeys.get('SORT#1#KEY');
         await retrieved?.loadLinks();
@@ -517,16 +517,16 @@ describe('dynamoDbORMteORM - Issue 6: Hash Encoding in Sort Keys', () => {
     it('should handle multiple # characters in linked item keys', async () => {
         const item1 = new TestItemWithHashEncoding(10);
         const item2 = new TestItemWithHashEncoding(20);
-        await item1.save();
-        await item2.save();
+        await item1.insert();
+        await item2.insert();
 
         const parent = new TestParentWithHashInKeys(2);
         parent.linkedItem = item1;
-        await parent.save();
+        await parent.insert();
 
         // Change link
         parent.linkedItem = item2;
-        await parent.save();
+        await parent.insert();
 
         const retrieved = await TestParentWithHashInKeys.get('SORT#2#KEY');
         await retrieved?.loadLinks();
@@ -567,7 +567,7 @@ describe('dynamoDbORMteORM - ToDbModel and FromDbModel', () => {
 
     it('should apply ToDbModel transformation on save', async () => {
         const item = new TestItemWithMappers(1);
-        await item.save();
+        await item.insert();
 
         const retrieved = await TestItemWithMappers.get('1');
         expect(retrieved?.createdAt).toBeInstanceOf(Date);
@@ -577,7 +577,7 @@ describe('dynamoDbORMteORM - ToDbModel and FromDbModel', () => {
     it('should apply FromDbModel transformation on load', async () => {
         const item = new TestItemWithMappers(2);
         item.createdAt = new Date('2024-01-01');
-        await item.save();
+        await item.insert();
 
         const retrieved = await TestItemWithMappers.get('2');
         expect(retrieved?.createdAt).toBeInstanceOf(Date);
@@ -589,7 +589,7 @@ describe('dynamoDbORMteORM - Query Operations', () => {
     beforeEach(async () => {
         // Create test data
         for (let i = 1; i <= 10; i++) {
-            await new TestItem(i * 10, `Item ${i}`).save();
+            await new TestItem(i * 10, `Item ${i}`).insert();
         }
     });
 
@@ -656,11 +656,11 @@ describe('dynamoDbORMteORM - Child Deletion Cleanup via Back-References', () => 
 
     it('should clean up stale forward link when child is deleted (non-inline LinkObject)', async () => {
         const child = new TestChild(600, 'Deletable Child');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithNonInlineLink(20);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         // Delete the child — should remove the forward link in the parent's table
         await child.delete();
@@ -678,15 +678,15 @@ describe('dynamoDbORMteORM - Child Deletion Cleanup via Back-References', () => 
 
     it('should clean up forward links from all parents when shared child is deleted (LinkArray)', async () => {
         const child = new TestChild(601, 'Shared Child');
-        await child.save();
+        await child.insert();
 
         const parent1 = new TestParentWithArray(21);
         parent1.children = [child];
-        await parent1.save();
+        await parent1.insert();
 
         const parent2 = new TestParentWithArray(22);
         parent2.children = [child];
-        await parent2.save();
+        await parent2.insert();
 
         // Delete the shared child
         await child.delete();
@@ -703,18 +703,18 @@ describe('dynamoDbORMteORM - Child Deletion Cleanup via Back-References', () => 
 
     it('should not leave orphan back-reference records after child is deleted', async () => {
         const child = new TestChild(602, 'Back-Ref Check');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithNonInlineLink(23);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         await child.delete();
 
         // Re-save child under the same ID — if a stale back-reference existed,
         // loading links on the parent would still find data. With cleanup, it must be empty.
         const newChild = new TestChild(602, 'Re-Created Child');
-        await newChild.save();
+        await newChild.insert();
 
         const retrievedParent = await TestParentWithNonInlineLink.get('23');
         await retrievedParent!.loadLinks();
@@ -728,16 +728,16 @@ describe('dynamoDbORMteORM - Child Deletion Cleanup via Back-References', () => 
     it('should not affect back-references when link is replaced and old child is later deleted', async () => {
         const child1 = new TestChild(603, 'First Child');
         const child2 = new TestChild(604, 'Second Child');
-        await child1.save();
-        await child2.save();
+        await child1.insert();
+        await child2.insert();
 
         const parent = new TestParentWithNonInlineLink(24);
         parent.child = child1;
-        await parent.save();
+        await parent.insert();
 
         // Replace link with child2 (removes forward link + back-ref to child1, writes new ones for child2)
         parent.child = child2;
-        await parent.save();
+        await parent.insert();
 
         // Delete child1 — should be a no-op re. back-references (none should exist for child1 anymore)
         await child1.delete();
@@ -759,11 +759,11 @@ describe('dynamoDbORMteORM - Issue 4: Stale __propertyID Cleanup', () => {
 
     it('should not persist __propertyID field for non-inline links after loadLinks', async () => {
         const child = new TestChild(500, 'Test Child');
-        await child.save();
+        await child.insert();
 
         const parent = new TestParentWithNonInlineLink(5);
         parent.child = child;
-        await parent.save();
+        await parent.insert();
 
         // First verify no __childID in DB
         let retrieved1 = await TestParentWithNonInlineLink.get('5');
@@ -775,7 +775,7 @@ describe('dynamoDbORMteORM - Issue 4: Stale __propertyID Cleanup', () => {
         expect(retrieved1?.child?.childId).toBe(500);
 
         // Save again - toItem() should delete __childID for non-inline links
-        await retrieved1?.save();
+        await retrieved1?.insert();
 
         // Retrieve fresh and verify __childID still not in DB
         const retrieved2 = await TestParentWithNonInlineLink.get('5');

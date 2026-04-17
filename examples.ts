@@ -116,7 +116,7 @@ async function examples() {
 
     // Create and save a car
     const car = new Car(123, 'Toyota', 'Camry', 2024);
-    await car.save();
+    await car.insert();
 
     // Get single item by sort key (hash key is automatic)
     const retrievedCar = await Car.get('123');
@@ -145,7 +145,7 @@ async function examples() {
     carWithWheels.engine = new Engine(1, 5000, 8);
 
     // Save car - wheels are automatically saved first (cascade save)
-    await carWithWheels.save();
+    await carWithWheels.insert();
 
     // Retrieve car (wheels will be IDs only)
     const loadedCar = await Car.get('456');
@@ -159,7 +159,7 @@ async function examples() {
 
 
     loadedCar?.wheels?.splice(2, 1);
-    await loadedCar?.save();
+    await loadedCar?.insert();
     const loadedCar2 = await Car.get("456");
 
     // Load linked entities
