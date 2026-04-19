@@ -8,10 +8,10 @@ Lightweight TypeScript decorators for modeling DynamoDB items as classes.
 ## ✨ Features
 
 - 🎯 **Type-safe decorators** for DynamoDB entities with full TypeScript support
-- 🔗 **Entity relationships** with `@Link` decorator and automatic link loading
+- 🔗 **Entity relationships** with `@LinkObject` and `@LinkArray` decorators and automatic link loading
 - 🔄 **Custom serialization** with `@ToDbModel` and `@FromDbModel` transformers
 - ⏰ **Automatic timestamps** for `createdAt` and `updatedAt`
-- 🛠️ **Intuitive API** with `save()`, `update()`, `delete()`, `get()`, and `query()` methods
+- 🛠️ **Intuitive API** with `insert()`, `update()`, `delete()`, `get()`, and `query()` methods
 - 🚀 **Zero configuration** - works out of the box with AWS SDK v3
 - 📦 **Tiny footprint** - lightweight with minimal dependencies
 
@@ -45,7 +45,7 @@ import {
   Entity,
   FromDbModel,
   HashKeyValue,
-  Link,
+  LinkObject,
   SortKeyValue,
   ToDbModel
 } from 'orm-dynamodb';
@@ -90,7 +90,7 @@ class Post extends BaseEntity {
   title: string;
   publishedAt: Date | null;
 
-  @Link(Author)
+  @LinkObject(Author)
   author: Author | undefined;
 
   constructor(slug: string = '', title: string = '', publishedAt: Date | null = null) {
@@ -119,7 +119,7 @@ async function run() {
   const post = new Post('decorators-with-dynamodb', 'Decorators With DynamoDB', new Date());
   post.author = new Author('ada-lovelace', 'Ada Lovelace');
 
-  await post.save();
+  await post.insert();
 
   const loaded = await Post.get('decorators-with-dynamodb');
   await loaded?.loadLinks();
@@ -133,23 +133,30 @@ async function run() {
 ### Decorators & Classes
 
 - **`BaseEntity`** - Base class for all entities with CRUD operations
-- **`@Entity(tableName, hashKey, sortKey)`** - Marks a class as a DynamoDB entity
+- **`@Entity(tableName, hashKey, sortKey?, dbClient?)`** - Marks a class as a DynamoDB entity
 - **`@HashKeyValue`** - Defines the hash key value getter
 - **`@SortKeyValue`** - Defines the sort key value getter
-- **`@Link(EntityClass)`** - Creates a reference to another entity
+- **`@LinkObject(EntityClass, options?)`** - Creates a reference to a single entity (options: `{ inline?: boolean }`)
+- **`@LinkArray(EntityClass, options?)`** - Creates a reference to an array of entities (options: `{ inline?: boolean }`)
 - **`@ToDbModel`** - Custom serialization when writing to DynamoDB
 - **`@FromDbModel`** - Custom deserialization when reading from DynamoDB
 
 ### Core Methods
 
-**Instance Methods:**
-- `save()` - Insert or update the entity
-- `update()` - Partial update of the entity
+**Iinsert()` - Insert or update the entity (cascade saves linked entities)
+- `update(attributes)` - Partial update of the entity
 - `delete()` - Remove the entity from DynamoDB
 - `loadLinks()` - Load all linked entities
 
 **Static Methods:**
 - `get(sortKeyValue)` - Retrieve a single entity by sort key
+- `query(options)` - Query entities with custom options
+- `queryAll(limit?)` - Query all entities in the partition
+- `queryEquals(sortKeyValue, limit?)` - Query entities with exact sort key match
+- `queryStartsWith(prefix, limit?)` - Query entities with sort key prefix
+- `queryBetween(start, end, limit?)` - Query entities with sort key in range
+- `queryGreaterThan(value, limit?)` - Query entities with sort key greater than value
+- `queryLessThan(value, limit?)` - Query entities with sort key less than valuesort key
 - `query(options)` - Query entities in the partition
 - `configure(client)` - Set the DynamoDB client globally
 
@@ -157,8 +164,10 @@ async function run() {
 
 - ✅ Explicit DynamoDB client configuration via `BaseEntity.configure(...)` or `@Entity(..., dbClient)`
 - ✅ Automatic `createdAt` and `updatedAt` timestamp management
-- ✅ Type-safe entity relationships with lazy loading
+- ✅ Type-safe entity relationships with `@LinkObject` and `@LinkArray` decorators
+- ✅ Lazy loading of linked entities with `loadLinks()`
 - ✅ Custom transformation between domain models and DynamoDB items
+- ✅ Inline and non-inline link storage options
 
 ## 🛠️ Development
 
