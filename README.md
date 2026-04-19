@@ -1,16 +1,31 @@
 # orm-dynamodb
 
+[![npm version](https://img.shields.io/npm/v/orm-dynamodb.svg)](https://www.npmjs.com/package/orm-dynamodb)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 Lightweight TypeScript decorators for modeling DynamoDB items as classes.
 
-## Install
+## ✨ Features
+
+- 🎯 **Type-safe decorators** for DynamoDB entities with full TypeScript support
+- 🔗 **Entity relationships** with `@Link` decorator and automatic link loading
+- 🔄 **Custom serialization** with `@ToDbModel` and `@FromDbModel` transformers
+- ⏰ **Automatic timestamps** for `createdAt` and `updatedAt`
+- 🛠️ **Intuitive API** with `save()`, `update()`, `delete()`, `get()`, and `query()` methods
+- 🚀 **Zero configuration** - works out of the box with AWS SDK v3
+- 📦 **Tiny footprint** - lightweight with minimal dependencies
+
+## 📦 Install
 
 ```bash
 npm install orm-dynamodb
 ```
 
-The package depends on `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`.
+**Dependencies:** `@aws-sdk/client-dynamodb` and `@aws-sdk/lib-dynamodb`
 
-Your TypeScript config must enable decorators:
+### TypeScript Configuration
+
+Enable decorators in your `tsconfig.json`:
 
 ```json
 {
@@ -21,7 +36,7 @@ Your TypeScript config must enable decorators:
 }
 ```
 
-## Quick Start
+## 🚀 Quick Start
 
 ```ts
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -113,28 +128,39 @@ async function run() {
 }
 ```
 
-## API
+## 📚 API
 
-The package exports:
+### Decorators & Classes
 
-- `BaseEntity`
-- `Entity`
-- `HashKeyValue`
-- `SortKeyValue`
-- `Link`
-- `ToDbModel`
-- `FromDbModel`
+- **`BaseEntity`** - Base class for all entities with CRUD operations
+- **`@Entity(tableName, hashKey, sortKey)`** - Marks a class as a DynamoDB entity
+- **`@HashKeyValue`** - Defines the hash key value getter
+- **`@SortKeyValue`** - Defines the sort key value getter
+- **`@Link(EntityClass)`** - Creates a reference to another entity
+- **`@ToDbModel`** - Custom serialization when writing to DynamoDB
+- **`@FromDbModel`** - Custom deserialization when reading from DynamoDB
 
-Core capabilities:
+### Core Methods
 
-- explicit DynamoDB client configuration via `BaseEntity.configure(...)` or `@Entity(..., dbClient)`
-- `save()`, `update()`, and `delete()` instance methods
-- `get()`, `query()`, and common query helpers on the entity class
-- linked entity references with `@Link(...)` and `loadLinks()`
-- custom read/write mapping with `@ToDbModel` and `@FromDbModel`
-- automatic `createdAt` and `updatedAt` timestamps
+**Instance Methods:**
+- `save()` - Insert or update the entity
+- `update()` - Partial update of the entity
+- `delete()` - Remove the entity from DynamoDB
+- `loadLinks()` - Load all linked entities
 
-## Local Development
+**Static Methods:**
+- `get(sortKeyValue)` - Retrieve a single entity by sort key
+- `query(options)` - Query entities in the partition
+- `configure(client)` - Set the DynamoDB client globally
+
+### Features
+
+- ✅ Explicit DynamoDB client configuration via `BaseEntity.configure(...)` or `@Entity(..., dbClient)`
+- ✅ Automatic `createdAt` and `updatedAt` timestamp management
+- ✅ Type-safe entity relationships with lazy loading
+- ✅ Custom transformation between domain models and DynamoDB items
+
+## 🛠️ Development
 
 Install dependencies:
 
@@ -160,22 +186,21 @@ Check what will be published:
 npm run pack:check
 ```
 
-## Publish
+## 📝 License
 
-Make sure the package name in `package.json` is the one you want to publish and is available on npm, then:
+Apache-2.0
 
-```bash
-npm login
-npm publish
-```
+## ⚠️ Important Notes
 
-If you rename the package, update the import path in this README to match.
+- Static lookups assume the hash key can be derived from a default-constructed instance
+- Query helpers operate within a single partition key value
+- Link loading issues individual `GetCommand` calls per linked record
+- This is a lightweight utility, not a schema or migration system
 
-## Notes
+## 📖 Examples
 
-- Static lookups assume the hash key can be derived from a default-constructed instance.
-- Query helpers all operate within a single partition key value.
-- Link loading currently issues individual `GetCommand` calls per linked record.
-- This is a lightweight utility, not a schema or migration system.
+See [examples.ts](./examples.ts) for examples.
 
-See [examples.ts](./examples.ts) for a fuller usage example.
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
